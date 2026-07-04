@@ -32,7 +32,7 @@ app = FastAPI(title="Voice Bridge")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1142,7 +1142,7 @@ def read_index():
     index_path = os.path.join(os.path.dirname(__file__), "index.html")
     if os.path.exists(index_path):
         with open(index_path, "r", encoding="utf-8") as f:
-            return f.read().replace("%%VOICE_TOKEN%%", VOICE_BRIDGE_TOKEN or "")
+            return f.read()
     return "<h3>index.html not found</h3>"
 
 

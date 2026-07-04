@@ -2,12 +2,21 @@ import http.server
 import socketserver
 import subprocess
 import os
+from urllib.parse import urlsplit, parse_qs
 
 PORT = 8888
+TOKEN = os.environ.get("PHONE_SERVER_TOKEN")
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == '/ask':
+        parsed = urlsplit(self.path)
+        request_token = parse_qs(parsed.query).get("token", [""])[0]
+        if not TOKEN or request_token != TOKEN:
+            self.send_response(401)
+            self.end_headers()
+            return
+
+        if parsed.path == '/ask':
             # Run the voice script in a detached background process
             subprocess.Popen(['bash', os.path.expanduser('~/voice.sh')], start_new_session=True)
             

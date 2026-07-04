@@ -302,7 +302,11 @@
         let isSpeaking = false;
         let recordTimeout;
         let conversationHistory = []; // Session dialogue memory
-        const VOICE_TOKEN = "%%VOICE_TOKEN%%";
+        let VOICE_TOKEN = localStorage.getItem('voiceBridgeToken') || '';
+        if (!VOICE_TOKEN) {
+            VOICE_TOKEN = window.prompt('Enter voice bridge token:') || '';
+            if (VOICE_TOKEN) localStorage.setItem('voiceBridgeToken', VOICE_TOKEN);
+        }
         let currentAudio = null; // Active HTML5 Audio playback element
         let localStream = null; // Store active media stream to close hardware mic
         let audioCtx = null; // Web Audio API context for speaker routing
