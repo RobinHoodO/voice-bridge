@@ -1,0 +1,77 @@
+{
+  "generatedAt": "2026-06-28T10:30:00Z",
+  "models": [
+    {
+      "model": "mistral-large-3-675b",
+      "claudeCodeCompatible": true,
+      "supportsTools": true,
+      "supportsStreaming": false,
+      "contextWindow": 131072,
+      "roles": ["coding", "tool_use", "review", "summarization", "reasoning"],
+      "notes": "675B params. Strongest general reasoning + tool-capable model available. Top pick for coding/review/hard tasks."
+    },
+    {
+      "model": "nemotron-3-super-120b",
+      "claudeCodeCompatible": true,
+      "supportsTools": true,
+      "supportsStreaming": false,
+      "contextWindow": 1000000,
+      "roles": ["long_context", "tool_use", "summarization", "review"],
+      "notes": "1M context window. Best model for very long context / large codebase analysis."
+    },
+    {
+      "model": "gpt-oss-120b",
+      "claudeCodeCompatible": true,
+      "supportsTools": true,
+      "supportsStreaming": false,
+      "contextWindow": 131072,
+      "roles": ["coding", "tool_use", "summarization"],
+      "notes": "Reliable mid-tier coding model with tool support."
+    },
+    {
+      "model": "gpt-4.1",
+      "claudeCodeCompatible": true,
+      "supportsTools": true,
+      "supportsStreaming": false,
+      "contextWindow": 128000,
+      "roles": ["coding", "tool_use", "review", "summarization"],
+      "notes": "Solid general-purpose tool-capable model."
+    },
+    {
+      "model": "llama-3.3-70b",
+      "claudeCodeCompatible": true,
+      "supportsTools": true,
+      "supportsStreaming": false,
+      "contextWindow": 131072,
+      "roles": ["coding", "tool_use", "summarization", "fast"],
+      "notes": "Fast mid-tier model with tool support. Good for simple/fast tasks."
+    },
+    {
+      "model": "gpt-oss-20b",
+      "claudeCodeCompatible": true,
+      "supportsTools": true,
+      "supportsStreaming": false,
+      "contextWindow": 131072,
+      "roles": ["coding", "tool_use", "summarization", "fast"],
+      "notes": "Lightweight fallback with tool support."
+    },
+    {
+      "model": "kimi-k2.6",
+      "claudeCodeCompatible": true,
+      "supportsTools": false,
+      "supportsStreaming": false,
+      "contextWindow": 262144,
+      "roles": ["reasoning", "review", "summarization"],
+      "notes": "Strong reasoner, no tool support. v3 ensemble advisor only."
+    },
+    {
+      "model": "command-a-reasoning",
+      "claudeCodeCompatible": true,
+      "supportsTools": false,
+      "supportsStreaming": false,
+      "contextWindow": 256000,
+      "roles": ["reasoning", "review", "summarization"],
+      "notes": "Dedicated thinking model, no tool support. v3 ensemble advisor for hard reasoning."
+    }
+  ]
+}
