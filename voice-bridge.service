@@ -1,0 +1,15 @@
+[Unit]
+Description=Voice Bridge Server
+After=network.target
+
+[Service]
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/voice-bridge/bin/uvicorn server:app --host 0.0.0.0 --port 8765 --ssl-keyfile certs/cert.key --ssl-certfile certs/cert.crt
+WorkingDirectory=/opt/voice-bridge
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

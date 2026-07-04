@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Thrivbe Agent Terminal</title>
+    
+    <!-- PWA configuration -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#050608">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="https://img.icons8.com/nolan/512/artificial-intelligence.png">
+
+    <!-- JetBrains Mono Font -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #050608;
+            --terminal-green: #00ff66;
+            --terminal-blue: #00bfff;
+            --terminal-yellow: #ffcc00;
+            --terminal-red: #ff3344;
+            --terminal-white: #f5f6f7;
+            --terminal-dim: #5c6370;
+            --border-color: rgba(0, 255, 102, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: var(--bg-color);
+        }
+
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--terminal-white);
+            overscroll-behavior: none; /* Block native elastic scroll to keep PWA layout rigid */
+        }
+
+        .app-wrapper {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+            padding: 12px;
+            padding-bottom: calc(16px + env(safe-area-inset-bottom, 16px)); /* Safe margin on notch/gesture navigation bar devices */
+            padding-top: calc(12px + env(safe-area-inset-top, 0px));
+            box-sizing: border-box;
+        }
+
+        /* ── Fullscreen Terminal Log ── */
+        .terminal-container {
+            flex-grow: 1;
+            width: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-size: 0.8rem;
+            box-shadow: inset 0 0 15px rgba(0, 255, 102, 0.05);
+            margin-bottom: 12px;
+        }
+
+        .line {
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* Line colors based on log type */
+        .line.sys { color: var(--terminal-dim); }
+        .line.info { color: var(--terminal-blue); }
+        .line.user { color: #ffffff; font-weight: bold; padding: 4px 0; border-top: 1px dashed rgba(255, 255, 255, 0.1); }
+        .line.ai { color: var(--terminal-green); font-weight: bold; padding-bottom: 4px; border-bottom: 1px dashed rgba(0, 255, 102, 0.1); }
+        .line.tool { color: var(--terminal-yellow); }
+        .line.error { color: var(--terminal-red); }
+
+        /* ── Bottom Controls ── */
+        .controls-bar {
+            position: relative;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 12px;
+            padding: 24px 0 0 0;
+            width: 100%;
+            flex-shrink: 0;
+        }
+
+        .status-text {
+            font-size: 0.75rem;
+            color: var(--terminal-dim);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            position: absolute;
+            top: 2px;
+            left: 4px;
+        }
+
+        .chat-input-container {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            background-color: rgba(28, 30, 36, 0.6);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 2px 6px 2px 16px;
+            transition: border-color 0.25s ease, box-shadow 0.25s ease;
+        }
+
+        .chat-input-container:focus-within {
+            border-color: var(--terminal-blue);
+            box-shadow: 0 0 10px rgba(0, 191, 255, 0.15);
+        }
+
+        .chat-input {
+            flex-grow: 1;
+            background: none;
+            border: none;
+            outline: none;
+            color: var(--terminal-white);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            padding: 8px 0;
+            width: 100%;
+        }
+
+        .chat-input::placeholder {
+            color: var(--terminal-dim);
+            opacity: 0.7;
+        }
+
+        /* Compact bottom microphone button */
+        .mic-container {
+            position: relative;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .mic-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background-color: #1c1e24;
+            border: 2px solid var(--terminal-blue);
+            outline: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 191, 255, 0.15);
+            touch-action: none; /* Prevents scroll interference */
+            transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 10;
+        }
+
+        .mic-btn svg {
+            width: 20px;
+            height: 20px;
+            fill: var(--terminal-blue);
+            transition: fill 0.25s ease, transform 0.2s ease;
+        }
+
+        /* Pulse wave when recording */
+        .pulse-ring {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 2px solid var(--terminal-red);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Active Recording State */
+        .recording .mic-btn {
+            background-color: var(--terminal-red);
+            border-color: var(--terminal-red);
+            box-shadow: 0 4px 16px rgba(255, 51, 68, 0.4);
+            transform: scale(0.95);
+        }
+
+        .recording .mic-btn svg {
+            fill: #ffffff;
+            transform: scale(0.9);
+        }
+
+        .recording .pulse-ring {
+            animation: ripple 1.4s infinite cubic-bezier(0.215, 0.61, 0.355, 1);
+        }
+
+        /* Speaking State */
+        .speaking .mic-btn {
+            border-color: var(--terminal-green);
+            box-shadow: 0 4px 16px rgba(0, 255, 102, 0.25);
+        }
+
+        .speaking .mic-btn svg {
+            fill: var(--terminal-green);
+        }
+
+        @keyframes ripple {
+            0% { transform: scale(0.9); opacity: 0.6; }
+            100% { transform: scale(1.35); opacity: 0; }
+        }
+
+        /* Pull to Refresh Indicator */
+        .pull-to-refresh {
+            position: absolute;
+            top: -60px;
+            left: 0;
+            width: 100%;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: var(--terminal-green);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+            z-index: 1000;
+            pointer-events: none;
+            opacity: 0;
+        }
+
+        .pull-to-refresh .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(0, 255, 102, 0.2);
+            border-top: 2px solid var(--terminal-green);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Custom Pull to Refresh Banner -->
+    <div id="pullToRefresh" class="pull-to-refresh">
+        <div class="spinner"></div>
+        <span>Pull to refresh</span>
+    </div>
+
+    <div class="app-wrapper">
+        <!-- Fullscreen Terminal Log -->
+        <div class="terminal-container" id="terminal">
+            <div class="line sys">[sys] System loaded. Hold bottom button to speak.</div>
+        </div>
+
+        <!-- Bottom Controls -->
+        <div class="controls-bar">
+            <div class="status-text" id="status">Ready</div>
+            <div class="chat-input-container">
+                <input type="text" class="chat-input" id="chatInput" placeholder="Type a message..." autocomplete="off">
+            </div>
+            <div class="mic-container" id="visualizer">
+                <div class="pulse-ring"></div>
+                <button class="mic-btn" id="micBtn">
+                    <svg id="micIcon" viewBox="0 0 24 24">
+                        <path d="M12,14A3,3 0 0,0 15,11V5A3,3 0 0,0 12,2A3,3 0 0,0 9,5V11A3,3 0 0,0 12,14M17.3,11C17.3,14 14.76,16.2 12,16.2C9.24,16.2 6.7,14 6.7,11H5C5,14.41 7.72,17.2 11,17.68V21H13V17.68C16.28,17.2 19,14.41 19,11H17.3Z"/>
+                    </svg>
+                    <svg id="sendIcon" viewBox="0 0 24 24" style="display: none;">
+                        <path d="M2,21L23,12L2,3V10L17,12L2,14V21Z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        let isRecordingStarting = false; // Flag to trace active MediaRecorder startup
+        let isSpeaking = false;
+        let recordTimeout;
+        let conversationHistory = []; // Session dialogue memory
+        const VOICE_TOKEN = "%%VOICE_TOKEN%%";
+        let currentAudio = null; // Active HTML5 Audio playback element
+        let localStream = null; // Store active media stream to close hardware mic
+        let audioCtx = null; // Web Audio API context for speaker routing
+        let activeSourceNode = null; // Active source node for cancellation
+
+        const micBtn = document.getElementById('micBtn');
+        const visualizer = document.getElementById('visualizer');
+        const statusText = document.getElementById('status');
+        const terminal = document.getElementById('terminal');
+        const chatInput = document.getElementById('chatInput');
+        const micIcon = document.getElementById('micIcon');
+        const sendIcon = document.getElementById('sendIcon');
+
+        // Update button state on user input
+        chatInput.addEventListener('input', updateButtonState);
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitTextQuery();
+            }
+        });
+
+        function updateButtonState() {
+            const hasText = chatInput.value.trim().length > 0;
+            if (hasText) {
+                micIcon.style.display = 'none';
+                sendIcon.style.display = 'block';
+                micBtn.style.borderColor = 'var(--terminal-green)';
+                sendIcon.style.fill = 'var(--terminal-green)';
+            } else {
+                micIcon.style.display = 'block';
+                sendIcon.style.display = 'none';
+                if (isSpeaking) {
+                    micBtn.style.borderColor = 'var(--terminal-green)';
+                    micIcon.style.fill = 'var(--terminal-green)';
+                } else {
+                    micBtn.style.borderColor = 'var(--terminal-blue)';
+                    micIcon.style.fill = 'var(--terminal-blue)';
+                }
+            }
+        }
+
+        // Request microphone permission on page load
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                logLine("sys", "Microphone access authorized.");
+                // Immediately release microphone hardware after permission check
+                stream.getTracks().forEach(track => track.stop());
+            })
+            .catch(err => {
+                logLine("error", "Microphone access denied! Go to Android settings to allow Chrome mic access.");
+                statusText.innerText = "PERMISSION DENIED";
+                statusText.style.color = "var(--terminal-red)";
+            });
+
+        // ── Recording Control Functions ──
+        function logLine(type, text) {
+            const line = document.createElement('div');
+            line.className = `line ${type}`;
+            line.innerText = `[${type}] ${text}`;
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        // Support both Pointer Events and standard Touch Events for safety
+        const handleStart = (e) => {
+            e.preventDefault();
+            
+            const hasText = chatInput.value.trim().length > 0;
+            if (hasText) return;
+
+            if (isSpeaking) {
+                interruptSpeech();
+                return;
+            }
+            startRecording();
+        };
+
+        const handleEnd = (e) => {
+            e.preventDefault();
+            
+            const hasText = chatInput.value.trim().length > 0;
+            if (hasText) {
+                submitTextQuery();
+                return;
+            }
+
+            if (isRecording) {
+                stopRecording();
+            }
+        };
+
+        // Bind events
+        micBtn.addEventListener('pointerdown', handleStart);
+        micBtn.addEventListener('pointerup', handleEnd);
+        micBtn.addEventListener('pointercancel', handleEnd);
+        micBtn.addEventListener('pointerleave', handleEnd);
+
+        // Touch event fallbacks for older devices
+        micBtn.addEventListener('touchstart', handleStart, { passive: false });
+        micBtn.addEventListener('touchend', handleEnd, { passive: false });
+        micBtn.addEventListener('touchcancel', handleEnd, { passive: false });
+
+        function interruptSpeech() {
+            window.speechSynthesis.cancel();
+            if (activeSourceNode) {
+                try { activeSourceNode.stop(); } catch(e){}
+                activeSourceNode = null;
+            }
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+            }
+            isSpeaking = false;
+            visualizer.classList.remove('speaking');
+            statusText.innerText = "Interrupted";
+            statusText.style.color = "var(--terminal-blue)";
+            logLine("sys", "AI speech cancelled by user.");
+            setTimeout(() => {
+                statusText.innerText = "Ready";
+                statusText.style.color = "var(--terminal-dim)";
+            }, 1000);
+        }
+
+        async function startRecording() {
+            if (isRecording || isRecordingStarting) return;
+            isRecordingStarting = true;
+            
+            // Stop any ongoing speech
+            window.speechSynthesis.cancel();
+            if (activeSourceNode) {
+                try { activeSourceNode.stop(); } catch(e){}
+                activeSourceNode = null;
+            }
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+            }
+            isSpeaking = false;
+            visualizer.classList.remove('speaking');
+
+            audioChunks = [];
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // If user released the button while getUserMedia was resolving, cancel immediately
+                if (!isRecordingStarting) {
+                    console.log("Recording cancelled: user released button before stream initialized.");
+                    stream.getTracks().forEach(track => track.stop());
+                    return;
+                }
+                
+                localStream = stream;
+                mediaRecorder = new MediaRecorder(localStream);
+                
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    // Stop tracks immediately to free hardware before network request starts
+                    if (localStream) {
+                        localStream.getTracks().forEach(track => track.stop());
+                        localStream = null;
+                    }
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    sendAudio(audioBlob);
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                isRecordingStarting = false;
+                
+                visualizer.classList.add('recording');
+                statusText.innerText = "Recording";
+                statusText.style.color = "var(--terminal-red)";
+                logLine("sys", "Recording started...");
+
+                // Automatic cutoff at 10 seconds
+                recordTimeout = setTimeout(() => {
+                    if (isRecording) stopRecording();
+                }, 10000);
+
+            } catch (err) {
+                isRecordingStarting = false;
+                console.error("Failed to start recording:", err);
+                logLine("error", "Failed to start recording mic.");
+            }
+        }
+
+        function stopRecording() {
+            if (isRecordingStarting) {
+                // User let go of button before getUserMedia resolved
+                isRecordingStarting = false;
+            }
+            
+            if (!isRecording) return;
+            
+            clearTimeout(recordTimeout);
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            isRecording = false;
+            visualizer.classList.remove('recording');
+            statusText.innerText = "Thinking";
+            statusText.style.color = "var(--terminal-yellow)";
+            logLine("sys", "Audio captured. Uploading...");
+        }
+
+        async function submitTextQuery() {
+            const text = chatInput.value.trim();
+            if (!text) return;
+
+            // Clear input and restore button state
+            chatInput.value = "";
+            updateButtonState();
+
+            // Stop any ongoing speech/audio
+            window.speechSynthesis.cancel();
+            if (activeSourceNode) {
+                try { activeSourceNode.stop(); } catch(e){}
+                activeSourceNode = null;
+            }
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+            }
+            isSpeaking = false;
+            visualizer.classList.remove('speaking');
+
+            statusText.innerText = "Thinking";
+            statusText.style.color = "var(--terminal-yellow)";
+
+            const formData = new FormData();
+            formData.append('text', text);
+            formData.append('history', JSON.stringify(conversationHistory));
+
+            try {
+                const response = await fetch('/ask-text', {
+                    method: 'POST',
+                    headers: { 'X-Voice-Token': VOICE_TOKEN },
+                    body: formData
+                });
+                
+                if (!response.ok) throw new Error("Connection failed");
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n\n");
+                    buffer = lines.pop(); // keep partial line in buffer
+
+                    for (const line of lines) {
+                        if (line.trim().startsWith("data: ")) {
+                            try {
+                                const data = JSON.parse(line.trim().substring(6));
+                                handleServerEvent(data);
+                            } catch (e) {
+                                console.error("Error parsing SSE line:", e);
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+                logLine("error", `Bridge error: ${err.message}`);
+                statusText.innerText = "Error";
+                statusText.style.color = "var(--terminal-red)";
+                setTimeout(() => {
+                    statusText.innerText = "Ready";
+                    statusText.style.color = "var(--terminal-dim)";
+                }, 2000);
+            }
+        }
+
+        async function sendAudio(blob) {
+            const formData = new FormData();
+            formData.append('audio', blob, 'query.wav');
+            formData.append('history', JSON.stringify(conversationHistory));
+
+            try {
+                const response = await fetch('/ask', {
+                    method: 'POST',
+                    headers: { 'X-Voice-Token': VOICE_TOKEN },
+                    body: formData
+                });
+                
+                if (!response.ok) throw new Error("Connection failed");
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n\n");
+                    buffer = lines.pop(); // keep partial line in buffer
+
+                    for (const line of lines) {
+                        if (line.trim().startsWith("data: ")) {
+                            try {
+                                const data = JSON.parse(line.trim().substring(6));
+                                handleServerEvent(data);
+                            } catch (e) {
+                                console.error("Error parsing SSE line:", e);
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+                logLine("error", `Bridge error: ${err.message}`);
+                statusText.innerText = "Error";
+                statusText.style.color = "var(--terminal-red)";
+                setTimeout(() => {
+                    statusText.innerText = "Ready";
+                    statusText.style.color = "var(--terminal-dim)";
+                }, 2000);
+            }
+        }
+
+        function handleServerEvent(event) {
+            if (event.type === "vibrate") {
+                logLine("sys", `📱 Native vibration triggered: ${event.duration}ms`);
+                if (navigator.vibrate) {
+                    navigator.vibrate(event.duration);
+                }
+            } else if (event.type === "log") {
+                let type = "info";
+                let text = event.message;
+                
+                // Pretty print console tags
+                if (text.includes("💡") || text.includes("✅")) type = "sys";
+                if (text.includes("🔧") || text.includes("⚙️")) type = "tool";
+                if (text.includes("Error")) type = "error";
+                
+                logLine(type, text);
+            } else if (event.type === "user_transcription") {
+                logLine("user", `YOU: ${event.message}`);
+                conversationHistory.push({ role: 'user', content: event.message });
+            } else if (event.type === "ai_reply") {
+                logLine("ai", `AI: ${event.message}`);
+                conversationHistory.push({ role: 'assistant', content: event.message });
+                // Keep memory from growing too large (limit to last 12 messages = 6 user/ai turns)
+                if (conversationHistory.length > 12) {
+                    conversationHistory.shift();
+                }
+                
+                if (event.audio) {
+                    playAudioContextBase64(event.audio, event.message);
+                } else {
+                    speak(event.message);
+                }
+            } else if (event.type === "error") {
+                logLine("error", event.message);
+            }
+        }
+
+        function playAudioContextBase64(base64Data, fallbackText) {
+            window.speechSynthesis.cancel();
+            
+            // Cancel active AudioContext node if already playing
+            if (activeSourceNode) {
+                try { activeSourceNode.stop(); } catch(e){}
+                activeSourceNode = null;
+            }
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+            }
+
+            // Explicitly close the old context to release all hardware routing bindings
+            if (audioCtx) {
+                try { audioCtx.close(); } catch(e){}
+                audioCtx = null;
+            }
+
+            // Give the browser 250ms to fully release the microphone hardware before instantiating the new audio playback context
+            setTimeout(() => {
+                try {
+                    // Initialize a FRESH AudioContext with explicit 'playback' latency hint to force loudspeaker output
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
+                    
+                    // Resume AudioContext if suspended (browser autoplay policy)
+                    if (audioCtx.state === 'suspended') {
+                        audioCtx.resume();
+                    }
+
+                    // Decode base64 to ArrayBuffer
+                    const binaryString = window.atob(base64Data);
+                    const len = binaryString.length;
+                    const bytes = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    const arrayBuffer = bytes.buffer;
+
+                    audioCtx.decodeAudioData(arrayBuffer, function(buffer) {
+                        const sourceNode = audioCtx.createBufferSource();
+                        sourceNode.buffer = buffer;
+                        sourceNode.connect(audioCtx.destination);
+                        
+                        activeSourceNode = sourceNode;
+                        
+                        sourceNode.onended = () => {
+                            if (activeSourceNode === sourceNode) {
+                                isSpeaking = false;
+                                visualizer.classList.remove('speaking');
+                                statusText.innerText = "Ready";
+                                statusText.style.color = "var(--terminal-dim)";
+                            }
+                        };
+
+                        isSpeaking = true;
+                        visualizer.classList.add('speaking');
+                        statusText.innerText = "Speaking";
+                        statusText.style.color = "var(--terminal-green)";
+                        
+                        sourceNode.start(0);
+                    }, function(err) {
+                        console.error("decodeAudioData error, falling back:", err);
+                        speak(fallbackText);
+                    });
+
+                } catch (err) {
+                    console.error("Web Audio API failed, falling back:", err);
+                    speak(fallbackText);
+                }
+            }, 250);
+        }
+
+        function speak(text) {
+            window.speechSynthesis.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            const voices = window.speechSynthesis.getVoices();
+            const preferredVoice = voices.find(voice => 
+                voice.lang.includes('en') && (voice.name.includes('Google') || voice.name.includes('Natural'))
+            );
+            if (preferredVoice) utterance.voice = preferredVoice;
+            
+            utterance.onstart = () => {
+                isSpeaking = true;
+                visualizer.classList.add('speaking');
+                statusText.innerText = "Speaking";
+                statusText.style.color = "var(--terminal-green)";
+            };
+
+            utterance.onend = () => {
+                isSpeaking = false;
+                visualizer.classList.remove('speaking');
+                statusText.innerText = "Ready";
+                statusText.style.color = "var(--terminal-dim)";
+            };
+
+            utterance.onerror = () => {
+                isSpeaking = false;
+                visualizer.classList.remove('speaking');
+                statusText.innerText = "Ready";
+                statusText.style.color = "var(--terminal-dim)";
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
+
+        window.speechSynthesis.onvoiceschanged = () => {
+            window.speechSynthesis.getVoices();
+        };
+
+        // Register PWA Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('Service Worker registered!'))
+                    .catch(err => console.error('Service Worker registration failed:', err));
+            });
+        }
+
+        // Custom Pull to Refresh Logic for Standalone PWA
+        let startY = 0;
+        let currentY = 0;
+        let isPulling = false;
+        const pullToRefresh = document.getElementById('pullToRefresh');
+        const pullThreshold = 70; // px threshold to trigger refresh
+
+        window.addEventListener('touchstart', (e) => {
+            // Only trigger pull-down if we are at the top of the terminal logs
+            const terminalContainer = document.getElementById('terminal');
+            if (terminalContainer.scrollTop === 0) {
+                startY = e.touches[0].pageY;
+                currentY = startY;
+                isPulling = true;
+                pullToRefresh.style.transition = 'none';
+            }
+        }, { passive: false });
+
+        window.addEventListener('touchmove', (e) => {
+            if (!isPulling) return;
+            currentY = e.touches[0].pageY;
+            const diff = currentY - startY;
+
+            if (diff > 0) {
+                // Prevent native browser scroll-bounce or pull-to-refresh
+                if (e.cancelable) {
+                    e.preventDefault();
+                }
+                
+                // Apply elastic drag dampening
+                const dragDistance = Math.min(diff * 0.4, pullThreshold + 20);
+                pullToRefresh.style.transform = `translateY(${dragDistance}px)`;
+                pullToRefresh.style.opacity = Math.min(dragDistance / pullThreshold, 1);
+                
+                const textSpan = pullToRefresh.querySelector('span');
+                if (dragDistance >= pullThreshold) {
+                    textSpan.innerText = "Release to refresh";
+                    textSpan.style.color = "var(--terminal-green)";
+                } else {
+                    textSpan.innerText = "Pull to refresh";
+                    textSpan.style.color = "var(--terminal-dim)";
+                }
+            }
+        }, { passive: false });
+
+        window.addEventListener('touchend', () => {
+            if (!isPulling) return;
+            isPulling = false;
+            
+            const diff = currentY - startY;
+            pullToRefresh.style.transition = 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease';
+            
+            if (diff * 0.4 >= pullThreshold) {
+                pullToRefresh.style.transform = `translateY(${pullThreshold}px)`;
+                const textSpan = pullToRefresh.querySelector('span');
+                textSpan.innerText = "Refreshing...";
+                
+                // Trigger a short haptic vibration confirming selection if API available
+                if (navigator.vibrate) {
+                    navigator.vibrate(40);
+                }
+
+                setTimeout(() => {
+                    window.location.reload();
+                }, 300);
+            } else {
+                pullToRefresh.style.transform = 'translateY(0)';
+                pullToRefresh.style.opacity = 0;
+            }
+            startY = 0;
+            currentY = 0;
+        });
+    </script>
+</body>
+</html>
