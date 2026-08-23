@@ -56,15 +56,8 @@ API_KEY = os.getenv("FREELLMAPI_KEY")
 DEFAULT_MODEL = "auto"
 VOICE_BRIDGE_TOKEN = os.getenv("VOICE_BRIDGE_TOKEN")
 
-# Bloom (Asana Clone) API Configuration
-BLOOM_BASE_URL = "http://100.96.126.87:3005"
-BLOOM_API_TOKEN = os.getenv("BLOOM_API_TOKEN")
-
-# Command Center System Graph API Configuration
-SYSTEM_GRAPH_URL = "http://100.96.126.87:3002"
-
 # thrivbe-os Kernel Voice API Configuration (runs on Robin's Mac, over Tailscale)
-KERNEL_BASE_URL = "http://100.96.126.87:8790"
+KERNEL_BASE_URL = "http://127.0.0.1:8790"
 
 # ElevenLabs Premium TTS Configuration
 ELEVENLABS_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel (Premium, highly realistic)
@@ -123,10 +116,10 @@ SYSTEM_PROMPT = (
     "You have tools to monitor and control his Android phone (initiating calls, reading notifications, setting the clipboard, searching contacts), "
     "interact with Bloom (his agent-native task platform), search Twenty CRM contacts, "
     "perform semantic search queries (using turbovec) across his LinkedIn network ('people' corpus), Notion knowledge base ('notion' corpus), and Obsidian wiki/agent skills ('wiki_skills' corpus), "
-    "read and resolve his Inbox items, and approve, defer, or skip pending approvals and actions in the Command Center. "
+    "read his Inbox items and inspect Command Center graph documents. "
     "You can also perform a Hybrid RAG search (using 'hybrid_rag_search') combining system graph relations and vector search over all wiki pages, skills, and codebases to find detailed conceptual answers, matching entities, and verified graph paths. "
     "Note: All book summaries, book abstracts, and library documents (like getAbstract summaries) are stored in the Obsidian library under the 'wiki_skills' corpus. Always use 'wiki_skills' (or 'hybrid_rag_search') to search for books, book summaries, or abstracts; do not search the 'notion' corpus for these. If you need to search for tasks, projects, or objectives in the Command Center (e.g. for keywords like 'smart rings' or general project queries), use 'hybrid_rag_search' to query the system graph and database. "
-    "You also have three kernel tools that talk directly to the thrivbe-os kernel running on Robin's Mac: 'kernel_status' tells you what needs Robin's attention right now (pending approvals, attention items, and recent agent runs); 'kernel_decide' approves or rejects a specific pending approval by its id; 'kernel_memo' files a short note into Robin's unified inbox. "
+    "You also have six kernel tools that talk directly to the thrivbe-os kernel running on Robin's Mac: 'kernel_status' tells you what needs Robin's attention right now (pending approvals, attention items, and recent agent runs); 'kernel_decide' approves or rejects a specific pending approval by its id; 'kernel_memo' files a short note into Robin's unified inbox; 'kernel_remember' stores a durable fact in Robin's ONE memory; 'kernel_recall' searches that memory; 'os_delegate' hands business/system work to the OS worker and returns immediately after acceptance. "
     "CRITICAL: Never call 'kernel_decide' based on inference. Only call it after you have read the approval's preview text aloud to Robin and he has given an explicit yes or no. If 'kernel_decide' reports the approval was already decided or doesn't exist, tell Robin that plainly. "
     "Keep responses short and conversational. No markdown, no bullet points, no code blocks. "
     "CRITICAL: If you are returning lists of names, search results, contacts, or notification details: "
@@ -134,6 +127,58 @@ SYSTEM_PROMPT = (
     "and list the full details AFTER the '===' divider. The speech engine will only read out the short text before the divider, "
     "while the complete detailed list will be displayed in the Web App interface logs."
 )
+
+LOCAL_SYSTEM_PROMPT_ADDENDUM = (
+    "You have tools to monitor and control his Android phone (initiating calls, reading notifications, setting the clipboard, searching contacts), "
+    "interact with Bloom (his agent-native task platform), search Twenty CRM contacts, "
+    "perform semantic search queries (using turbovec) across his LinkedIn network ('people' corpus), Notion knowledge base ('notion' corpus), and Obsidian wiki/agent skills ('wiki_skills' corpus), "
+    "read his Inbox items and inspect Command Center graph documents. "
+    "You can also perform a Hybrid RAG search (using 'hybrid_rag_search') combining system graph relations and vector search over all wiki pages, skills, and codebases to find detailed conceptual answers, matching entities, and verified graph paths. "
+    "Note: All book summaries, book abstracts, and library documents (like getAbstract summaries) are stored in the Obsidian library under the 'wiki_skills' corpus. Always use 'wiki_skills' (or 'hybrid_rag_search') to search for books, book summaries, or abstracts; do not search the 'notion' corpus for these. If you need to search for tasks, projects, or objectives in the Command Center (e.g. for keywords like 'smart rings' or general project queries), use 'hybrid_rag_search' to query the system graph and database. "
+    "You also have six kernel tools that talk directly to the thrivbe-os kernel running on Robin's Mac: 'kernel_status' tells you what needs Robin's attention right now (pending approvals, attention items, and recent agent runs); 'kernel_decide' approves or rejects a specific pending approval by its id; 'kernel_memo' files a short note into Robin's unified inbox; 'kernel_remember' stores a durable fact in Robin's ONE memory; 'kernel_recall' searches that memory; 'os_delegate' hands business/system work to the OS worker and returns immediately after acceptance. "
+    "CRITICAL: Never call 'kernel_decide' based on inference. Only call it after you have read the approval's preview text aloud to Robin and he has given an explicit yes or no. If 'kernel_decide' reports the approval was already decided or doesn't exist, tell Robin that plainly. "
+    "Keep responses short and conversational. No markdown, no bullet points, no code blocks. "
+    "CRITICAL: If you are returning lists of names, search results, contacts, or notification details: "
+    "speak only a very brief summary or count before a '===' divider (e.g. 'I found 3 contacts matching Robin. Here is the list. ==='), "
+    "and list the full details AFTER the '===' divider. The speech engine will only read out the short text before the divider, "
+    "while the complete detailed list will be displayed in the Web App interface logs."
+)
+
+SYSTEM_PROMPT_SEPARATOR = "\n\n--- LOCAL VOICE BRIDGE TOOL GUIDANCE ---\n\n"
+SYSTEM_PROMPT_TTL_SECONDS = 600
+_system_prompt_cache_text = None
+_system_prompt_cache_fetched_at = 0
+
+async def get_system_prompt() -> str:
+    global _system_prompt_cache_text, _system_prompt_cache_fetched_at
+
+    now = time.time()
+    if (
+        _system_prompt_cache_text
+        and now - _system_prompt_cache_fetched_at < SYSTEM_PROMPT_TTL_SECONDS
+    ):
+        return _system_prompt_cache_text + SYSTEM_PROMPT_SEPARATOR + LOCAL_SYSTEM_PROMPT_ADDENDUM
+
+    token = os.getenv("VOICE_API_TOKEN")
+    if token:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.get(
+                    f"{KERNEL_BASE_URL}/persona",
+                    headers={"Authorization": f"Bearer {token}"}
+                )
+                r.raise_for_status()
+                data = r.json()
+                persona = data.get("persona")
+                if isinstance(persona, str) and persona.strip():
+                    _system_prompt_cache_text = persona.strip()
+                    _system_prompt_cache_fetched_at = now
+        except Exception as e:
+            print(f"[SYSTEM PROMPT] Failed to fetch kernel persona: {e}")
+
+    if _system_prompt_cache_text:
+        return _system_prompt_cache_text + SYSTEM_PROMPT_SEPARATOR + LOCAL_SYSTEM_PROMPT_ADDENDUM
+    return SYSTEM_PROMPT
 
 # ── Whisper Setup ───────────────────────────────────────────────────────────
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "small")
@@ -256,6 +301,57 @@ TOOLS = [
                     }
                 },
                 "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kernel_remember",
+            "description": "Store a durable fact in Robin's ONE memory (shared across voice, Telegram, and the OS). Use for 'remember that...', preferences, decisions, or context worth keeping. Distinct from kernel_memo, which files an inbox item for triage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The fact to remember, 1-4000 characters."
+                    }
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kernel_recall",
+            "description": "Search Robin's ONE memory (remembered notes first, then CRM/tasks/wiki) for facts or context. Use for 'what did I say about...', 'do you remember...', or any question about stored knowledge.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "What to look up."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "os_delegate",
+            "description": "Hand BUSINESS/SYSTEM work to Robin's thrivbe-os worker: tasks, CRM updates, approvals, follow-ups/chasing, or anything in Robin's operating system such as 'create a task', 'update...', or 'chase...'. This only waits for the OS to accept the job; Robin gets a Telegram approval or summary later.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instruction": {
+                        "type": "string",
+                        "description": "The business/system instruction for the OS worker."
+                    }
+                },
+                "required": ["instruction"]
             }
         }
     },
@@ -411,43 +507,6 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "graph_register_node",
-            "description": "Register or connect an external entity (like a tool, workflow, or agent) into the Command Center system graph.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "node_id": {
-                        "type": "string",
-                        "description": "The stable node ID, prefix with namespace (e.g., 'agent:voice-agent')."
-                    },
-                    "name": {
-                        "type": "string",
-                        "description": "Human-readable name of the entity."
-                    },
-                    "type": {
-                        "type": "string",
-                        "description": "The node type (e.g., 'agent', 'tool', 'workflow', 'external')."
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Brief description of what this entity does."
-                    },
-                    "target_id": {
-                        "type": "string",
-                        "description": "Optional: Node ID in the system graph to connect this node to."
-                    },
-                    "edge_kind": {
-                        "type": "string",
-                        "description": "Optional: The relationship verb (e.g. 'uses', 'calls', 'owns', 'depends_on')."
-                    }
-                },
-                "required": ["node_id", "name", "type"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "list_inbox_items",
             "description": "List pending or triaged inbox items (like emails, SMS, Beeper notifications, LinkedIn messages) from the Command Center.",
             "parameters": {
@@ -468,50 +527,6 @@ TOOLS = [
                     }
                 },
                 "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "resolve_approval",
-            "description": "Approve or reject a pending agent approval in the Command Center.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "The approval item ID."
-                    },
-                    "decision": {
-                        "type": "string",
-                        "enum": ["approved", "rejected"],
-                        "description": "The resolution decision."
-                    }
-                },
-                "required": ["id", "decision"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "resolve_queued_action",
-            "description": "Approve, defer, or skip a queued action in the Command Center.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "The queued action ID."
-                    },
-                    "action": {
-                        "type": "string",
-                        "enum": ["approve", "defer", "skip"],
-                        "description": "The action resolution choice."
-                    }
-                },
-                "required": ["id", "action"]
             }
         }
     },
@@ -700,7 +715,34 @@ def wrap_primitive_arguments(val: str, tool_name: str) -> dict:
 
 
 # ── Tool Execution logic ────────────────────────────────────────────────────
+def normalize_tool_args(args: dict) -> dict:
+    """LLMs emit variant/malformed keys (':title', 'project_id'). Normalize before
+    tool code does strict key access — seen crashing bloom_create_task 2026-07-10."""
+    aliases = {"project_id": "projectId", "projectid": "projectId", "task_id": "id", "taskid": "id"}
+    out = {}
+    for k, v in args.items():
+        if isinstance(k, str):
+            k = k.strip().strip(":'\" ")
+            k = aliases.get(k.lower(), k)
+        out[k] = v
+    return out
+
+
+async def _bloom_project_ids(token: str) -> dict:
+    """id -> name of Bloom projects, via the kernel."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            f"{KERNEL_BASE_URL}/bloom-projects",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        r.raise_for_status()
+        data = r.json()
+    projects = data.get("projects", data) if isinstance(data, dict) else data
+    return {int(p["id"]): p["name"] for p in projects}
+
+
 async def execute_tool(name: str, args: dict) -> str:
+    args = normalize_tool_args(args)
     print(f"[TOOL] Executing {name} with args {args}")
     try:
         # 1. Check Dynamic Tools first
@@ -744,7 +786,7 @@ async def execute_tool(name: str, args: dict) -> str:
                     r.raise_for_status()
                     data = r.json()
             except Exception as e:
-                return f"I couldn't reach the kernel on Robin's Mac just now — it may be asleep. ({e})"
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
 
             approvals = data.get("approvals", [])
             attention = data.get("attention", [])
@@ -781,7 +823,7 @@ async def execute_tool(name: str, args: dict) -> str:
                     r.raise_for_status()
                     data = r.json()
             except Exception as e:
-                return f"I couldn't reach the kernel on Robin's Mac just now — it may be asleep. ({e})"
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
 
             if data.get("changed"):
                 return f"Done — approval {args['approval_id']} marked as {args['decision']}."
@@ -801,57 +843,152 @@ async def execute_tool(name: str, args: dict) -> str:
                     r.raise_for_status()
                     data = r.json()
             except Exception as e:
-                return f"I couldn't reach the kernel on Robin's Mac just now — it may be asleep. ({e})"
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
 
             return f"Noted — filed to your inbox (id {data.get('id')})."
 
+        elif name == "kernel_remember":
+            token = os.getenv("VOICE_API_TOKEN")
+            if not token:
+                return "Error: VOICE_API_TOKEN is not configured in environment variables."
+            text = (args.get("text") or "").strip()
+            if not text:
+                return "I need something to remember."
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.post(
+                        f"{KERNEL_BASE_URL}/remember",
+                        json={"text": text},
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    r.raise_for_status()
+            except Exception as e:
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
+            return "Remembered."
+
+        elif name == "kernel_recall":
+            token = os.getenv("VOICE_API_TOKEN")
+            if not token:
+                return "Error: VOICE_API_TOKEN is not configured in environment variables."
+            q = (args.get("query") or "").strip()
+            if not q:
+                return "What should I recall?"
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        f"{KERNEL_BASE_URL}/recall",
+                        params={"q": q},
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+            except Exception as e:
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
+            hits = data.get("hits", [])
+            if not hits:
+                return f"Nothing recalled for {q}."
+            return "\n".join((h.get("text") or "")[:200] for h in hits[:4])
+
+        elif name == "os_delegate":
+            token = os.getenv("VOICE_API_TOKEN")
+            if not token:
+                return "Error: VOICE_API_TOKEN is not configured in environment variables."
+            instruction = (args.get("instruction") or "").strip()
+            if not instruction:
+                return "I need an instruction to hand to the OS worker."
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.post(
+                        f"{KERNEL_BASE_URL}/delegate",
+                        json={"instruction": instruction, "source": "voice-bridge"},
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    r.raise_for_status()
+            except Exception as e:
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
+
+            return "Handed to the OS worker — Robin will get an approval or a summary on Telegram."
+
         # 3. Bloom Tools
         elif name == "bloom_list_projects":
-            async with httpx.AsyncClient() as client:
-                r = await client.get(
-                    f"{BLOOM_BASE_URL}/api/core/projects",
-                    headers={"Authorization": f"Bearer {BLOOM_API_TOKEN}"}
-                )
-                r.raise_for_status()
-                data = r.json()
-                projects = data.get("projects", data) if isinstance(data, dict) else data
-                lines = []
-                for p in projects:
-                    lines.append(f"- ID {p['id']}: {p['name']} ({p.get('organization_name', 'No Org')})")
-                return "\n".join(lines) if lines else "No projects found in Bloom."
+            token = os.getenv("VOICE_API_TOKEN")
+            if not token:
+                return "Error: VOICE_API_TOKEN is not configured in environment variables."
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        f"{KERNEL_BASE_URL}/bloom-projects",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+            except Exception as e:
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
+
+            projects = data.get("projects", data) if isinstance(data, dict) else data
+            lines = []
+            for p in projects:
+                lines.append(f"- ID {p['id']}: {p['name']} ({p.get('organization_name', 'No Org')})")
+            return "\n".join(lines) if lines else "No projects found in Bloom."
 
         elif name == "bloom_list_tasks":
+            token = os.getenv("VOICE_API_TOKEN")
+            if not token:
+                return "Error: VOICE_API_TOKEN is not configured in environment variables."
             params = {}
             if "projectId" in args: params["projectId"] = args["projectId"]
             if "status" in args: params["status"] = args["status"]
             if "q" in args: params["q"] = args["q"]
             
-            async with httpx.AsyncClient() as client:
-                r = await client.get(
-                    f"{BLOOM_BASE_URL}/api/core/tasks",
-                    params=params,
-                    headers={"Authorization": f"Bearer {BLOOM_API_TOKEN}"}
-                )
-                r.raise_for_status()
-                data = r.json()
-                tasks = data.get("tasks", [])
-                lines = []
-                for t in tasks:
-                    lines.append(f"- ID {t['id']}: {t['title']} [Status: {t['status']}] (Project ID: {t.get('project_id', 'None')})")
-                return "\n".join(lines) if lines else "No matching tasks found."
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        f"{KERNEL_BASE_URL}/bloom-tasks",
+                        params=params,
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+            except Exception as e:
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
+
+            tasks = data.get("tasks", [])
+            lines = []
+            for t in tasks:
+                lines.append(f"- ID {t['id']}: {t['title']} [Status: {t['status']}] (Project ID: {t.get('project_id', 'None')})")
+            return "\n".join(lines) if lines else "No matching tasks found."
 
         elif name in ("bloom_create_task", "bloom_update_task", "bloom_comment_task"):
             token = os.getenv("VOICE_API_TOKEN")
             if not token:
                 return "Error: VOICE_API_TOKEN is not configured in environment variables."
             if name == "bloom_create_task":
-                payload = {"op": "create", "projectId": args["projectId"], "title": args["title"]}
+                missing = [k for k in ("projectId", "title") if k not in args]
+                if missing:
+                    return f"Error: bloom_create_task is missing required argument(s): {', '.join(missing)}. Provide them and retry."
+                try:
+                    known = await _bloom_project_ids(token)
+                except Exception as e:
+                    return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
+                try:
+                    pid = int(args["projectId"])
+                except (TypeError, ValueError):
+                    pid = -1
+                if pid not in known:
+                    listing = "\n".join(f"- ID {i}: {n}" for i, n in known.items())
+                    return f"Error: projectId {args['projectId']} doesn't exist in Bloom. Pick one of these real projects and retry:\n{listing}"
+                payload = {"op": "create", "projectId": pid, "title": args["title"]}
                 if "description" in args: payload["description"] = args["description"]
             elif name == "bloom_update_task":
+                if "id" not in args:
+                    return "Error: bloom_update_task is missing required argument 'id' (the task ID)."
                 payload = {"op": "update", "id": args["id"]}
                 if "status" in args: payload["status"] = args["status"]
                 if "title" in args: payload["title"] = args["title"]
             else:
+                missing = [k for k in ("id", "body") if k not in args]
+                if missing:
+                    return f"Error: bloom_comment_task is missing required argument(s): {', '.join(missing)}."
                 payload = {"op": "comment", "id": args["id"], "body": args["body"]}
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
@@ -863,129 +1000,105 @@ async def execute_tool(name: str, args: dict) -> str:
                     r.raise_for_status()
                     data = r.json()
             except Exception as e:
-                return f"I couldn't reach the kernel on Robin's Mac just now — it may be asleep. ({e})"
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
             return data.get("message", f"Filed approval #{data.get('approvalId')} — Robin must approve before this executes.")
 
         # 4. System Graph Tools
 
 
         elif name == "graph_get_node":
+            token = os.getenv("VOICE_API_TOKEN")
+            if not token:
+                return "Error: VOICE_API_TOKEN is not configured in environment variables."
             node_id = args["id"]
             depth = args.get("depth", 1)
             params = {"id": node_id, "depth": depth, "maxNodes": 50}
             
-            async with httpx.AsyncClient() as client:
-                r = await client.get(f"{SYSTEM_GRAPH_URL}/api/system-graph", params=params)
-                r.raise_for_status()
-                data = r.json()
-                
-                nodes = data.get("nodes", [])
-                edges = data.get("edges", [])
-                
-                node_map = {n["id"]: n for n in nodes}
-                lines = []
-                
-                for e in edges:
-                    src_name = node_map.get(e["source"], {}).get("name", e["source"])
-                    tgt_name = node_map.get(e["target"], {}).get("name", e["target"])
-                    lines.append(f"- {src_name} --[{e['kind']}]--> {tgt_name}")
-                
-                target_node = node_map.get(node_id, {})
-                target_desc = target_node.get("description", "No description available.")
-                
-                res_str = f"Node: {target_node.get('name', node_id)} ({node_id})\nDescription: {target_desc}\n\n"
-                if lines:
-                    res_str += "Graph Connections:\n" + "\n".join(lines)
-                else:
-                    res_str += "No connections found."
-                return res_str
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        f"{KERNEL_BASE_URL}/graph-node",
+                        params=params,
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+            except Exception as e:
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
+            
+            nodes = data.get("nodes", [])
+            edges = data.get("edges", [])
+            
+            node_map = {n["id"]: n for n in nodes}
+            lines = []
+            
+            for e in edges:
+                src_name = node_map.get(e["source"], {}).get("name", e["source"])
+                tgt_name = node_map.get(e["target"], {}).get("name", e["target"])
+                lines.append(f"- {src_name} --[{e['kind']}]--> {tgt_name}")
+            
+            target_node = node_map.get(node_id, {})
+            target_desc = target_node.get("description", "No description available.")
+            
+            res_str = f"Node: {target_node.get('name', node_id)} ({node_id})\nDescription: {target_desc}\n\n"
+            if lines:
+                res_str += "Graph Connections:\n" + "\n".join(lines)
+            else:
+                res_str += "No connections found."
+            return res_str
 
         elif name == "graph_get_document":
+            token = os.getenv("VOICE_API_TOKEN")
+            if not token:
+                return "Error: VOICE_API_TOKEN is not configured in environment variables."
             doc_id = args["id"]
-            async with httpx.AsyncClient() as client:
-                r = await client.get(f"{SYSTEM_GRAPH_URL}/api/catalog/file", params={"id": doc_id})
-                r.raise_for_status()
-                try:
-                    data = r.json()
-                    return data.get("content", "No content found.")
-                except Exception:
-                    return r.text[:2000]
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        f"{KERNEL_BASE_URL}/graph-doc",
+                        params={"id": doc_id},
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    r.raise_for_status()
+            except Exception as e:
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
 
-        elif name == "graph_register_node":
-            payload = {
-                "node": {
-                    "id": args["node_id"],
-                    "name": args["name"],
-                    "type": args["type"],
-                    "source": "voice-agent"
-                }
-            }
-            if "description" in args:
-                payload["node"]["description"] = args["description"]
-                
-            if args.get("target_id") and args.get("edge_kind"):
-                payload["edge"] = {
-                    "source": args["node_id"],
-                    "target": args["target_id"],
-                    "kind": args["edge_kind"]
-                }
-                
-            async with httpx.AsyncClient() as client:
-                r = await client.post(
-                    f"{SYSTEM_GRAPH_URL}/api/system-graph",
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                )
-                r.raise_for_status()
-                return f"Successfully registered node '{args['name']}' in the system graph."
+            try:
+                data = r.json()
+                return data.get("content", "No content found.")
+            except Exception:
+                return r.text[:2000]
 
         elif name == "list_inbox_items":
+            token = os.getenv("VOICE_API_TOKEN")
+            if not token:
+                return "Error: VOICE_API_TOKEN is not configured in environment variables."
             params = {"triage_status": args.get("triage_status", "unprocessed")}
             if "search" in args:
                 params["search"] = args["search"]
             if "limit" in args:
                 params["limit"] = args["limit"]
-            async with httpx.AsyncClient() as client:
-                r = await client.get(f"{SYSTEM_GRAPH_URL}/api/os/inbox", params=params)
-                r.raise_for_status()
-                data = r.json()
-                items = data.get("items", [])
-                lines = []
-                display_limit = args.get("limit", 15)
-                for item in items[:display_limit]:
-                    sender = item.get("sender") or "System"
-                    subject = item.get("subject") or "No Subject"
-                    snippet = item.get("snippet") or ""
-                    lines.append(f"- [{item['id']}] From {sender}: {subject} ({snippet[:60]}...)")
-                return "\n".join(lines) if lines else f"No {params['triage_status']} inbox items found."
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        f"{KERNEL_BASE_URL}/inbox",
+                        params=params,
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+            except Exception as e:
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
 
-        elif name == "resolve_approval":
-            payload = {
-                "id": args["id"],
-                "decision": args["decision"]
-            }
-            async with httpx.AsyncClient() as client:
-                r = await client.patch(
-                    f"{SYSTEM_GRAPH_URL}/api/os/approvals",
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                )
-                r.raise_for_status()
-                return f"Successfully resolved approval {args['id']} as {args['decision']}."
-
-        elif name == "resolve_queued_action":
-            payload = {
-                "id": args["id"],
-                "action": args["action"]
-            }
-            async with httpx.AsyncClient() as client:
-                r = await client.patch(
-                    f"{SYSTEM_GRAPH_URL}/api/os/actions",
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                )
-                r.raise_for_status()
-                return f"Successfully resolved queued action {args['id']} as {args['action']}."
+            items = data.get("items", [])
+            lines = []
+            display_limit = args.get("limit", 15)
+            for item in items[:display_limit]:
+                sender = item.get("sender") or "System"
+                subject = item.get("subject") or "No Subject"
+                snippet = item.get("snippet") or ""
+                lines.append(f"- [{item['id']}] From {sender}: {subject} ({snippet[:60]}...)")
+            return "\n".join(lines) if lines else f"No {params['triage_status']} inbox items found."
 
         elif name == "semsearch_query":
             token = os.getenv("VOICE_API_TOKEN")
@@ -1007,7 +1120,7 @@ async def execute_tool(name: str, args: dict) -> str:
                     r.raise_for_status()
                     data = r.json()
             except Exception as e:
-                return f"I couldn't reach the kernel on Robin's Mac just now — it may be asleep. ({e})"
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
 
             results = data.get("results", [])
             lines = []
@@ -1021,28 +1134,40 @@ async def execute_tool(name: str, args: dict) -> str:
             return "\n".join(lines) if lines else f"No semantic search results in {corpus}."
 
         elif name == "hybrid_rag_search":
+            token = os.getenv("VOICE_API_TOKEN")
+            if not token:
+                return "Error: VOICE_API_TOKEN is not configured in environment variables."
             query = args["query"]
             payload = {"query": query}
-            async with httpx.AsyncClient() as client:
-                r = await client.post(f"{SYSTEM_GRAPH_URL}/api/ai-search", json=payload, timeout=30.0)
-                r.raise_for_status()
-                data = r.json()
-                answer = data.get("answer", "")
-                
-                entities = data.get("entities", [])
-                paths = data.get("graphPaths", [])
-                
-                res_lines = [f"Answer: {answer}"]
-                if entities:
-                    res_lines.append("\nRelevant Entities:")
-                    for ent in entities:
-                        res_lines.append(f"- {ent['title']} ({ent['type']}): {ent['relevance']}")
-                if paths:
-                    res_lines.append("\nVerified Paths:")
-                    for p in paths:
-                        path_str = " -> ".join(p.get("via", []))
-                        res_lines.append(f"- {p['from']} to {p['to']} via: {path_str}")
-                return "\n".join(res_lines)
+            try:
+                async with httpx.AsyncClient() as client:
+                    r = await client.post(
+                        f"{KERNEL_BASE_URL}/ai-search",
+                        json=payload,
+                        headers={"Authorization": f"Bearer {token}"},
+                        timeout=30.0
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+            except Exception as e:
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
+
+            answer = data.get("answer", "")
+            
+            entities = data.get("entities", [])
+            paths = data.get("graphPaths", [])
+            
+            res_lines = [f"Answer: {answer}"]
+            if entities:
+                res_lines.append("\nRelevant Entities:")
+                for ent in entities:
+                    res_lines.append(f"- {ent['title']} ({ent['type']}): {ent['relevance']}")
+            if paths:
+                res_lines.append("\nVerified Paths:")
+                for p in paths:
+                    path_str = " -> ".join(p.get("via", []))
+                    res_lines.append(f"- {p['from']} to {p['to']} via: {path_str}")
+            return "\n".join(res_lines)
 
         elif name == "twenty_search_contacts":
             token = os.getenv("VOICE_API_TOKEN")
@@ -1059,7 +1184,7 @@ async def execute_tool(name: str, args: dict) -> str:
                     r.raise_for_status()
                     data = r.json()
             except Exception as e:
-                return f"I couldn't reach the kernel on Robin's Mac just now — it may be asleep. ({e})"
+                return f"I couldn't reach the Thrivbe OS kernel just now. ({e})"
 
             lines = []
             for p in data.get("results", []):
@@ -1192,7 +1317,7 @@ async def ask(
             yield make_log(f"✍️ Speech: '{user_text}'")
 
             # ── Construct Conversation Messages (with History) ──
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages = [{"role": "system", "content": await get_system_prompt()}]
             if context:
                 messages.append({"role": "system", "content": f"Context: {context}"})
             
@@ -1324,7 +1449,7 @@ async def ask_text(
             yield make_log(f"✍️ Typed: '{user_text}'")
 
             # ── Construct Conversation Messages (with History) ──
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages = [{"role": "system", "content": await get_system_prompt()}]
             if context:
                 messages.append({"role": "system", "content": f"Context: {context}"})
             

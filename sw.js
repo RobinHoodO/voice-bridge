@@ -1,4 +1,4 @@
-const CACHE_NAME = 'thrivbe-voice-v6';
+const CACHE_NAME = 'thrivbe-voice-v7';
 const ASSETS = [
   '/',
   '/manifest.json'
